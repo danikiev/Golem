@@ -17,46 +17,44 @@
 /*      You should have received a copy of the GNU General Public License     */
 /*    along with this program.  If not, see <http://www.gnu.org/licenses/>    */
 /******************************************************************************/
+#ifndef GOLEMRANKTWOMATERIALPROPERTY_H
+#define GOLEMRANKTWOMATERIALPROPERTY_H
 
-#include "GolemApp.h"
-#include "Moose.h"
-#include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+#include "ElementIntegralUserObject.h"
+
+class GolemRankTwoMaterialProperty;
 
 template <>
-InputParameters
-validParams<GolemApp>()
-{
-  InputParameters params = validParams<MooseApp>();
-  return params;
-}
+InputParameters validParams<GolemRankTwoMaterialProperty>();
 
-GolemApp::GolemApp(InputParameters parameters) : MooseApp(parameters)
+class GolemRankTwoMaterialProperty : public ElementIntegralUserObject
 {
-  GolemApp::registerAll(_factory, _action_factory, _syntax);
-}
+public:
+  GolemRankTwoMaterialProperty(const InputParameters & parameters);
+  virtual ~GolemRankTwoMaterialProperty() {}
 
-GolemApp::~GolemApp() {}
+  virtual void initialize();
+  virtual void execute();
+  virtual void finalize();
+  virtual void threadJoin(const UserObject & y);
 
-static void
-associateSyntaxInner(Syntax & syntax, ActionFactory & /*action_factory*/)
-{
-  registerSyntax("EmptyAction", "BCs/GolemPressure");
-  registerSyntax("GolemMapRankTwoTensorAction", "GolemMapRankTwoTensor");
-  registerSyntax("GolemPressureAction", "BCs/GolemPressure/*");
-}
+  virtual Real computeIntegral();
+  virtual Real computeQpIntegral();
 
-void
-GolemApp::registerApps()
-{
-  registerApp(GolemApp);
-}
+  Real getElementalValue(unsigned int elem_id) const;
+  virtual Real getMappedElementalValue(unsigned int elem_id) const;
 
-void
-GolemApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
-{
-  Registry::registerObjectsTo(f, {"GolemApp"});
-  Registry::registerActionsTo(af, {"GolemApp"});
-  associateSyntaxInner(s, af);
-}
+protected:
+  void readFile();
+
+  const MaterialProperty<RankTwoTensor> & _mat_prop;
+  const unsigned int _index_i;
+  const unsigned int _index_j;
+
+  std::vector<Real> _elem_integrals;
+
+  FileName _file_name;
+  std::map<unsigned int, std::vector<unsigned int>> _mapped_elem_id;
+};
+
+#endif // GOLEMRANKTWOMATERIALPROPERTY_H

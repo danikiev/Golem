@@ -35,6 +35,7 @@ validParams<GolemMaterialMElastic>()
   params.addRequiredCoupledVar("displacements", "The displacement variables vector.");
   params.addCoupledVar("pore_pressure", "The pore pressure variable.");
   params.addCoupledVar("temperature", "The temperature variable.");
+  params.addCoupledVar("mapped_stress", "The stress components mapped on the fault planes.");
   params.addParam<MooseEnum>("strain_model",
                              GolemMaterialMElastic::strainModel() = "small_strain",
                              "The strain model to be used.");
@@ -78,6 +79,17 @@ validParams<GolemMaterialMElastic>()
   // GolemMaterialTH
   params.addParam<bool>("has_lumped_mass_matrix", false, "Has lumped mass matrix?");
   params.addParam<UserObjectName>("supg_uo", "The name of the SUPG user object.");
+
+  params.addParam<bool>(
+      "has_mapping", false, "Set it to true if you want to map the stress onto the frac.");
+  params.addParam<Real>(
+      "a_min", 0.0, "The value of the hydraulic fracture aperture at infinite normal stress.");
+  params.addParam<Real>(
+      "a_max", 1.0, "The value of the hydraulic fracture aperture at zero normal stress.");
+  params.addRangeCheckedParam<Real>("alpha",
+                                    0,
+                                    "alpha>=0&alpha<=1",
+                                    "The constant that describes the slope of the relantionship.");
   return params;
 }
 
@@ -97,6 +109,13 @@ GolemMaterialMElastic::GolemMaterialMElastic(const InputParameters & parameters)
     _shear_modulus_set(isParamValid("shear_modulus")),
     _young_modulus_set(isParamValid("young_modulus")),
     _stress(declareProperty<RankTwoTensor>("stress")),
+    _has_mapping(getParam<bool>("has_mapping")),
+    _nmappedstress(coupledComponents("mapped_stress")),
+    _mapped_stress(6),
+    _slip_tendency(declareProperty<Real>("slip_tendency")),
+    _a_min(getParam<Real>("a_min")),
+    _a_max(getParam<Real>("a_max")),
+    _alpha(getParam<Real>("alpha")),
     _M_jacobian(declareProperty<RankFourTensor>("M_jacobian")),
     _M_kernel_grav(declareProperty<RealVectorValue>("M_kernel_grav")),
     _porosity_old(getMaterialPropertyOld<Real>("porosity")),
@@ -117,6 +136,7 @@ GolemMaterialMElastic::GolemMaterialMElastic(const InputParameters & parameters)
     mooseError(
         "The number of variables supplied for displacements does not match the mesh dimension!\n");
   setPropertiesM();
+
   _porosity_uo = &getUserObject<GolemPorosity>("porosity_uo");
   _fluid_density_uo = &getUserObject<GolemFluidDensity>("fluid_density_uo");
   if (_has_pf)
@@ -168,6 +188,12 @@ GolemMaterialMElastic::setPropertiesM()
     _disp[i] = &_zero;
     _grad_disp[i] = &_grad_zero;
   }
+
+  for (unsigned i = 0; i < _nmappedstress; i++)
+    _mapped_stress[i] = &coupledValue("mapped_stress", i);
+  for (unsigned i = _nmappedstress; i < 6; i++)
+    _mapped_stress[i] = &_zero;
+
   setStrainModel();
   setElasticModuli();
   setBackgroundStress();
@@ -601,7 +627,7 @@ GolemMaterialMElastic::GolemCrackClosure()
 void
 GolemMaterialMElastic::GolemMatPropertiesHM()
 {
-  _scaling_factor[_qp] = computeQpScaling();
+  _scaling_factor[_qp] = GolemFractureAperture();
   // Fluid density
   _fluid_density[_qp] = _fluid_density_uo->computeDensity(0.0, 0.0, _rho0_f);
   // Fluid viscosity
@@ -663,7 +689,7 @@ GolemMaterialMElastic::GolemKernelPropertiesDerivativesHM()
 void
 GolemMaterialMElastic::GolemMatPropertiesTM()
 {
-  _scaling_factor[_qp] = computeQpScaling();
+  _scaling_factor[_qp] = GolemFractureAperture();
   // Fluid density
   _fluid_density[_qp] = _fluid_density_uo->computeDensity(0.0, 0.0, _rho0_f);
   // Fluid viscosity
@@ -719,7 +745,9 @@ GolemMaterialMElastic::GolemMatPropertiesTHM()
     dpf = (*_nodal_pf)[_qp] - (*_nodal_pf_old)[_qp];
     dT = (*_nodal_temp)[_qp] - (*_nodal_temp_old)[_qp];
   }
-  _scaling_factor[_qp] = computeQpScaling();
+
+  _scaling_factor[_qp] = GolemFractureAperture();
+
   (*_drho_dpf)[_qp] = _fluid_density_uo->computedDensitydp(pres, temp);
   (*_drho_dT)[_qp] = _fluid_density_uo->computedDensitydT(pres, temp, _rho0_f);
   _fluid_density[_qp] = _fluid_density_uo->computeDensity(pres, temp, _rho0_f);
@@ -904,10 +932,114 @@ GolemMaterialMElastic::GolemStress()
     case 3:
       RankTwoTensor intermediate_stress =
           (*_stress_old)[_qp] +
-          _Cijkl[_qp] * _strain_increment[_qp]; // Calculate stress in intermediate configruation
+          _Cijkl[_qp] * _strain_increment[_qp]; // Calculate stress in intermediate configuration
       _stress[_qp] = (*_rotation_increment)[_qp] * intermediate_stress *
                      (*_rotation_increment)[_qp].transpose();
       break;
   }
   _M_jacobian[_qp] = _Cijkl[_qp];
+}
+
+Real
+GolemMaterialMElastic::GolemFractureAperture()
+{
+  Real effective_aperture = computeQpScaling();
+  if (_has_mapping && _current_elem->dim() < _mesh.dimension())
+  {
+    RankTwoTensor tensor = RankTwoTensor();
+    GolemSetTensor(tensor);
+    if (_has_pf)
+      tensor.addIa(-(*_biot)[_qp] * (*_pf)[_qp]);
+    RealVectorValue traction = tensor * _normals[_qp];
+    Real normal_value = traction * _normals[_qp];
+    Real tangent_value =
+        std::sqrt((traction - (traction * _normals[_qp]) * _normals[_qp]).norm_sq());
+    _slip_tendency[_qp] = std::abs(normal_value) / std::abs(tangent_value);
+    effective_aperture = _a_min * std::pow((_a_max - _a_min), -_alpha * normal_value);
+  }
+  return effective_aperture;
+}
+
+void
+GolemMaterialMElastic::GolemSetTensor(RankTwoTensor & tensor)
+{
+  Real s_00 = 0.0;
+  Real s_01 = 0.0;
+  Real s_02 = 0.0;
+
+  Real s_10 = 0.0;
+  Real s_11 = 0.0;
+  Real s_12 = 0.0;
+
+  Real s_20 = 0.0;
+  Real s_21 = 0.0;
+  Real s_22 = 0.0;
+
+  unsigned int tensor_type = _nmappedstress * _mesh.dimension();
+  switch (tensor_type)
+  {
+    case 4: // 2D diagonal
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+    }
+    break;
+    case 6: // 2D symmetric
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+      s_10 = s_01 = (*_mapped_stress[2])[_qp];
+    }
+    break;
+    case 8: // 2D full --> it should never be the case
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+      s_01 = (*_mapped_stress[2])[_qp];
+      s_10 = (*_mapped_stress[3])[_qp];
+    }
+    break;
+    case 9: // 3D diagonal
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+      s_22 = (*_mapped_stress[2])[_qp];
+    }
+    break;
+    case 18: // 3D symmetric
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+      s_22 = (*_mapped_stress[2])[_qp];
+      s_01 = s_10 = (*_mapped_stress[3])[_qp];
+      s_02 = s_20 = (*_mapped_stress[4])[_qp];
+      s_12 = s_21 = (*_mapped_stress[5])[_qp];
+    }
+    break;
+    case 27: // 3D full --> it should never be the case
+    {
+      s_00 = (*_mapped_stress[0])[_qp];
+      s_11 = (*_mapped_stress[1])[_qp];
+      s_22 = (*_mapped_stress[2])[_qp];
+      s_01 = (*_mapped_stress[3])[_qp];
+      s_02 = (*_mapped_stress[4])[_qp];
+      s_10 = (*_mapped_stress[5])[_qp];
+      s_12 = (*_mapped_stress[6])[_qp];
+      s_20 = (*_mapped_stress[7])[_qp];
+      s_21 = (*_mapped_stress[8])[_qp];
+    }
+    break;
+  }
+
+  tensor(0, 0) = s_00;
+  tensor(0, 1) = s_01;
+  tensor(0, 2) = s_02;
+
+  tensor(1, 0) = s_10;
+  tensor(1, 1) = s_11;
+  tensor(1, 2) = s_12;
+
+  tensor(2, 0) = s_20;
+  tensor(2, 1) = s_21;
+  tensor(2, 2) = s_22;
 }

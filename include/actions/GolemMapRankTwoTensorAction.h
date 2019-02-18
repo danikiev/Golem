@@ -17,46 +17,39 @@
 /*      You should have received a copy of the GNU General Public License     */
 /*    along with this program.  If not, see <http://www.gnu.org/licenses/>    */
 /******************************************************************************/
+#ifndef GOLEMMAPRANKTWOTENSORACTION_H
+#define GOLEMMAPRANKTWOTENSORACTION_H
 
-#include "GolemApp.h"
-#include "Moose.h"
-#include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+#include "Action.h"
+
+class GolemMapRankTwoTensorAction;
 
 template <>
-InputParameters
-validParams<GolemApp>()
-{
-  InputParameters params = validParams<MooseApp>();
-  return params;
-}
+InputParameters validParams<GolemMapRankTwoTensorAction>();
 
-GolemApp::GolemApp(InputParameters parameters) : MooseApp(parameters)
+class GolemMapRankTwoTensorAction : public Action
 {
-  GolemApp::registerAll(_factory, _action_factory, _syntax);
-}
+public:
+  GolemMapRankTwoTensorAction(InputParameters params);
+  virtual void act() override;
 
-GolemApp::~GolemApp() {}
+protected:
+  virtual void createAuxVariableActions();
+  virtual void createAuxKernelActions();
+  virtual void createUserObjectActions();
 
-static void
-associateSyntaxInner(Syntax & syntax, ActionFactory & /*action_factory*/)
-{
-  registerSyntax("EmptyAction", "BCs/GolemPressure");
-  registerSyntax("GolemMapRankTwoTensorAction", "GolemMapRankTwoTensor");
-  registerSyntax("GolemPressureAction", "BCs/GolemPressure/*");
-}
+  std::vector<VariableName> _rank_two_material_property;
+  std::vector<unsigned int> _index_i;
+  std::vector<unsigned int> _index_j;
+  std::vector<std::string> _reindex_i;
+  std::vector<std::string> _reindex_j;
 
-void
-GolemApp::registerApps()
-{
-  registerApp(GolemApp);
-}
+  FileName _file_name;
+  bool _create_map;
 
-void
-GolemApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
-{
-  Registry::registerObjectsTo(f, {"GolemApp"});
-  Registry::registerActionsTo(af, {"GolemApp"});
-  associateSyntaxInner(s, af);
-}
+  std::vector<std::string> _aux_variables;
+  std::vector<std::string> _aux_kernels;
+  std::vector<std::string> _user_objects;
+};
+
+#endif // GOLEMMAPRANKTWOTENSORACTION_H

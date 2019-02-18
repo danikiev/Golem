@@ -53,6 +53,8 @@ protected:
   virtual void computeQpFiniteStrain();
   virtual void computeQpProperties();
   virtual void GolemCrackClosure();
+  virtual Real GolemFractureAperture();
+  virtual void GolemSetTensor(RankTwoTensor & tensor);
   virtual void GolemMatPropertiesHM();
   virtual void GolemKernelPropertiesHM();
   virtual void GolemKernelPropertiesDerivativesHM();
@@ -81,6 +83,14 @@ protected:
   bool _bulk_modulus_set, _lame_modulus_set, _poisson_ratio_set, _shear_modulus_set,
       _young_modulus_set;
   MaterialProperty<RankTwoTensor> & _stress;
+  // these are required for mapping between 3D and 2D elements;
+  bool _has_mapping;
+  unsigned int _nmappedstress;
+  std::vector<const VariableValue *> _mapped_stress;
+  MaterialProperty<Real> & _slip_tendency;
+  const Real _a_min;
+  const Real _a_max;
+  const Real _alpha;
   MaterialProperty<RankFourTensor> & _M_jacobian;
   MaterialProperty<RealVectorValue> & _M_kernel_grav;
   const MaterialProperty<Real> & _porosity_old;

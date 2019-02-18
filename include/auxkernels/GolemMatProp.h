@@ -17,46 +17,26 @@
 /*      You should have received a copy of the GNU General Public License     */
 /*    along with this program.  If not, see <http://www.gnu.org/licenses/>    */
 /******************************************************************************/
+#ifndef GOLEMMATPROP_H
+#define GOLEMMATPROP_H
 
-#include "GolemApp.h"
-#include "Moose.h"
-#include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+#include "AuxKernel.h"
+
+class GolemRankTwoMaterialProperty;
+class GolemMatProp;
 
 template <>
-InputParameters
-validParams<GolemApp>()
-{
-  InputParameters params = validParams<MooseApp>();
-  return params;
-}
+InputParameters validParams<GolemMatProp>();
 
-GolemApp::GolemApp(InputParameters parameters) : MooseApp(parameters)
+class GolemMatProp : public AuxKernel
 {
-  GolemApp::registerAll(_factory, _action_factory, _syntax);
-}
+public:
+  GolemMatProp(const InputParameters & parameters);
+  virtual ~GolemMatProp() {}
 
-GolemApp::~GolemApp() {}
+protected:
+  virtual Real computeValue();
+  const GolemRankTwoMaterialProperty & _mat_uo;
+};
 
-static void
-associateSyntaxInner(Syntax & syntax, ActionFactory & /*action_factory*/)
-{
-  registerSyntax("EmptyAction", "BCs/GolemPressure");
-  registerSyntax("GolemMapRankTwoTensorAction", "GolemMapRankTwoTensor");
-  registerSyntax("GolemPressureAction", "BCs/GolemPressure/*");
-}
-
-void
-GolemApp::registerApps()
-{
-  registerApp(GolemApp);
-}
-
-void
-GolemApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
-{
-  Registry::registerObjectsTo(f, {"GolemApp"});
-  Registry::registerActionsTo(af, {"GolemApp"});
-  associateSyntaxInner(s, af);
-}
+#endif // GOLEMMATPROP_H

@@ -17,46 +17,40 @@
 /*      You should have received a copy of the GNU General Public License     */
 /*    along with this program.  If not, see <http://www.gnu.org/licenses/>    */
 /******************************************************************************/
+#ifndef GOLEMMAP_H
+#define GOLEMMAP_H
 
-#include "GolemApp.h"
-#include "Moose.h"
-#include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+#include "ElementUserObject.h"
+
+class GolemMap;
 
 template <>
-InputParameters
-validParams<GolemApp>()
-{
-  InputParameters params = validParams<MooseApp>();
-  return params;
-}
+InputParameters validParams<GolemMap>();
 
-GolemApp::GolemApp(InputParameters parameters) : MooseApp(parameters)
+class GolemMap : public ElementUserObject
 {
-  GolemApp::registerAll(_factory, _action_factory, _syntax);
-}
+public:
+  GolemMap(const InputParameters & parameters);
+  ~GolemMap() {}
 
-GolemApp::~GolemApp() {}
+  virtual void initialSetup() override;
 
-static void
-associateSyntaxInner(Syntax & syntax, ActionFactory & /*action_factory*/)
-{
-  registerSyntax("EmptyAction", "BCs/GolemPressure");
-  registerSyntax("GolemMapRankTwoTensorAction", "GolemMapRankTwoTensor");
-  registerSyntax("GolemPressureAction", "BCs/GolemPressure/*");
-}
+  virtual void initialize() {}
+  virtual void execute() {}
+  virtual void finalize() {}
+  virtual void threadJoin(const UserObject & y) {}
 
-void
-GolemApp::registerApps()
-{
-  registerApp(GolemApp);
-}
+protected:
+  bool mapElements(const unsigned int subdomain_id);
+  bool pointsAreEqual(const Point pt0, const Point pt1, const Real tol);
+  void writeFile();
 
-void
-GolemApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
-{
-  Registry::registerObjectsTo(f, {"GolemApp"});
-  Registry::registerActionsTo(af, {"GolemApp"});
-  associateSyntaxInner(s, af);
-}
+  FileName _file_name;
+
+  std::vector<unsigned int> _frac_elem_id;
+  std::vector<unsigned int> _matrix_elem_id;
+  const Real _tolerance;
+  std::map<unsigned int, std::vector<unsigned int>> _mapped_elem_id;
+};
+
+#endif // GOLEMMAPMATRIXTOFRAC_H

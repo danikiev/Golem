@@ -17,46 +17,37 @@
 /*      You should have received a copy of the GNU General Public License     */
 /*    along with this program.  If not, see <http://www.gnu.org/licenses/>    */
 /******************************************************************************/
+#include "GolemRankTwoMaterialProperty.h"
+#include "GolemMatProp.h"
 
-#include "GolemApp.h"
-#include "Moose.h"
-#include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+registerMooseObject("GolemApp", GolemMatProp);
 
 template <>
 InputParameters
-validParams<GolemApp>()
+validParams<GolemMatProp>()
 {
-  InputParameters params = validParams<MooseApp>();
+  InputParameters params = validParams<AuxKernel>();
+  params.addClassDescription(
+      "Aux Kernel that stores the value of a material also for mapped elements.");
+  params.addRequiredParam<UserObjectName>("material_user_object",
+                                          "The user object to retrieve the material from.");
   return params;
 }
 
-GolemApp::GolemApp(InputParameters parameters) : MooseApp(parameters)
+GolemMatProp::GolemMatProp(const InputParameters & parameters)
+  : AuxKernel(parameters),
+    _mat_uo(getUserObject<GolemRankTwoMaterialProperty>("material_user_object"))
 {
-  GolemApp::registerAll(_factory, _action_factory, _syntax);
 }
 
-GolemApp::~GolemApp() {}
-
-static void
-associateSyntaxInner(Syntax & syntax, ActionFactory & /*action_factory*/)
+Real
+GolemMatProp::computeValue()
 {
-  registerSyntax("EmptyAction", "BCs/GolemPressure");
-  registerSyntax("GolemMapRankTwoTensorAction", "GolemMapRankTwoTensor");
-  registerSyntax("GolemPressureAction", "BCs/GolemPressure/*");
-}
+  Real value = 0.0;
+  if (_current_elem->dim() == _mesh.dimension())
+    value = _mat_uo.getElementalValue(_current_elem->id());
+  else if (_current_elem->dim() == (_mesh.dimension() - 1))
+    value = _mat_uo.getMappedElementalValue(_current_elem->id());
 
-void
-GolemApp::registerApps()
-{
-  registerApp(GolemApp);
-}
-
-void
-GolemApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
-{
-  Registry::registerObjectsTo(f, {"GolemApp"});
-  Registry::registerActionsTo(af, {"GolemApp"});
-  associateSyntaxInner(s, af);
+  return value;
 }
